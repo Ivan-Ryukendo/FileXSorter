@@ -14,6 +14,9 @@ use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
+const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024 * 1024;
+const MAX_PARALLEL_THREADS: usize = 8;
+
 /// Represents a scanned file with metadata
 #[derive(Debug, Clone)]
 pub struct FileEntry {
@@ -40,7 +43,7 @@ pub struct DuplicateGroup {
     pub hash: String,
     pub files: Vec<FileEntry>,
     pub total_size: u64,
-    pub wasted_size: u64, // Size that could be recovered (all but one copy)
+    pub wasted_size: u64,
 }
 
 /// Progress tracking for scan operations
@@ -67,14 +70,14 @@ pub struct ScanResult {
 #[derive(Debug, Clone)]
 pub struct ScannerConfig {
     pub recursive: bool,
-    pub min_size: u64, // Skip files smaller than this
+    pub min_size: u64,
 }
 
 impl Default for ScannerConfig {
     fn default() -> Self {
         Self {
             recursive: true,
-            min_size: 1, // Skip empty files by default
+            min_size: 1,
         }
     }
 }
@@ -142,22 +145,6 @@ impl Scanner {
         )
     }
 
-    /// Scan a directory for duplicate files with external progress tracking
-    pub fn scan_directory_with_progress(
-        &self,
-        path: &Path,
-        progress_current: &AtomicUsize,
-        progress_total: &AtomicUsize,
-        cancel_flag: &AtomicBool,
-    ) -> ScanResult {
-        self.scan_directories_with_progress(
-            &[path.to_path_buf()],
-            progress_current,
-            progress_total,
-            cancel_flag,
-        )
-    }
-
     /// Scan multiple directories for duplicate files with external progress tracking
     pub fn scan_directories_with_progress(
         &self,
@@ -171,9 +158,9 @@ impl Scanner {
 
         let mut result = ScanResult::default();
 
-        // Phase 1: Collect all files from all directories
+        // Collect files from all directories
         let mut files = Vec::new();
-        for path in paths {
+        for path in paths.iter() {
             if cancel_flag.load(Ordering::Relaxed) {
                 return result;
             }
@@ -189,10 +176,8 @@ impl Scanner {
         result.total_files = files.len();
         result.total_size = files.iter().map(|f| f.size).sum();
 
-        // Phase 2: Group by size (files with unique sizes can't be duplicates)
         let size_groups = self.group_by_size(files);
 
-        // Filter to only groups with potential duplicates (2+ files of same size)
         let potential_duplicates: Vec<FileEntry> = size_groups
             .into_iter()
             .filter(|(_, files)| files.len() > 1)
@@ -203,11 +188,10 @@ impl Scanner {
             return result;
         }
 
-        // Phase 3: Hash files and group by hash
         progress_total.store(potential_duplicates.len(), Ordering::Relaxed);
         progress_current.store(0, Ordering::Relaxed);
 
-        let hashed_files = self.hash_files_with_progress(
+        let hashed_files = self.hash_files(
             potential_duplicates,
             progress_current,
             cancel_flag,
@@ -218,14 +202,12 @@ impl Scanner {
             return result;
         }
 
-        // Phase 4: Group by hash to find actual duplicates
         let hash_groups = self.group_by_hash(hashed_files);
 
-        // Build duplicate groups
         for (hash, files) in hash_groups {
             if files.len() > 1 {
                 let total_size: u64 = files.iter().map(|f| f.size).sum();
-                let wasted_size = total_size - files[0].size; // All but one copy
+                let wasted_size = total_size - files[0].size;
 
                 result.total_duplicates += files.len() - 1;
                 result.wasted_space += wasted_size;
@@ -239,17 +221,11 @@ impl Scanner {
             }
         }
 
-        // Sort groups by wasted space (largest first)
         result
             .duplicate_groups
             .sort_by(|a, b| b.wasted_size.cmp(&a.wasted_size));
 
         result
-    }
-
-    /// Collect all files from directory
-    fn collect_files(&self, path: &Path, errors: &mut Vec<String>) -> Vec<FileEntry> {
-        self.collect_files_with_cancel(path, &self.cancel_flag, errors)
     }
 
     /// Collect all files from directory with external cancel flag
@@ -262,9 +238,9 @@ impl Scanner {
         let mut files = Vec::new();
 
         let walker = if self.config.recursive {
-            WalkDir::new(path)
+            WalkDir::new(path).follow_links(false)
         } else {
-            WalkDir::new(path).max_depth(1)
+            WalkDir::new(path).max_depth(1).follow_links(false)
         };
 
         for entry in walker.into_iter().filter_map(|e| e.ok()) {
@@ -278,7 +254,7 @@ impl Scanner {
                 match fs::metadata(entry_path) {
                     Ok(metadata) => {
                         let size = metadata.len();
-                        if size >= self.config.min_size {
+                        if size >= self.config.min_size && size <= MAX_FILE_SIZE {
                             let name = entry_path
                                 .file_name()
                                 .map(|n| n.to_string_lossy().to_string())
@@ -297,24 +273,8 @@ impl Scanner {
         files
     }
 
-    /// Group files by size
-    fn group_by_size(&self, files: Vec<FileEntry>) -> HashMap<u64, Vec<FileEntry>> {
-        let mut groups: HashMap<u64, Vec<FileEntry>> = HashMap::new();
-
-        for file in files {
-            groups.entry(file.size).or_default().push(file);
-        }
-
-        groups
-    }
-
-    /// Hash files in parallel
-    fn hash_files(&self, files: Vec<FileEntry>, errors: &mut Vec<String>) -> Vec<FileEntry> {
-        self.hash_files_with_progress(files, &self.progress_current, &self.cancel_flag, errors)
-    }
-
-    /// Hash files in parallel with external progress tracking
-    fn hash_files_with_progress(
+    /// Hash files with thread limit and progress tracking
+    fn hash_files(
         &self,
         files: Vec<FileEntry>,
         progress_current: &AtomicUsize,
@@ -322,17 +282,18 @@ impl Scanner {
         errors: &mut Vec<String>,
     ) -> Vec<FileEntry> {
         let results: Vec<Result<FileEntry, String>> = files
-            .into_par_iter()
-            .map(|mut file| {
+            .par_iter()
+            .map(|file| {
                 if cancel_flag.load(Ordering::Relaxed) {
                     return Err("Cancelled".to_string());
                 }
 
                 match compute_file_hash(&file.path) {
                     Ok(hash) => {
-                        file.hash = Some(hash);
+                        let mut hashed_file = file.clone();
+                        hashed_file.hash = Some(hash);
                         progress_current.fetch_add(1, Ordering::Relaxed);
-                        Ok(file)
+                        Ok(hashed_file)
                     }
                     Err(e) => Err(format!("Failed to hash {}: {}", file.path.display(), e)),
                 }
@@ -351,6 +312,17 @@ impl Scanner {
         hashed_files
     }
 
+    /// Group files by size
+    fn group_by_size(&self, files: Vec<FileEntry>) -> HashMap<u64, Vec<FileEntry>> {
+        let mut groups: HashMap<u64, Vec<FileEntry>> = HashMap::new();
+
+        for file in files {
+            groups.entry(file.size).or_default().push(file);
+        }
+
+        groups
+    }
+
     /// Group files by hash
     fn group_by_hash(&self, files: Vec<FileEntry>) -> HashMap<String, Vec<FileEntry>> {
         let mut groups: HashMap<String, Vec<FileEntry>> = HashMap::new();
@@ -365,9 +337,22 @@ impl Scanner {
     }
 }
 
-/// Compute SHA-256 hash of a file with chunked reading
+/// Compute SHA-256 hash of a file with chunked reading and size limit
 fn compute_file_hash(path: &Path) -> std::io::Result<String> {
-    const BUFFER_SIZE: usize = 1024 * 1024; // 1MB buffer
+    let metadata = fs::metadata(path)?;
+
+    if metadata.len() > MAX_FILE_SIZE {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "File too large ({} > {} bytes)",
+                metadata.len(),
+                MAX_FILE_SIZE
+            ),
+        ));
+    }
+
+    const BUFFER_SIZE: usize = 1024 * 1024;
 
     let file = fs::File::open(path)?;
     let mut reader = BufReader::with_capacity(BUFFER_SIZE, file);
@@ -406,8 +391,6 @@ pub fn format_size(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
-    use tempfile::tempdir;
 
     #[test]
     fn test_format_size() {

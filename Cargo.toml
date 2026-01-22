@@ -1,6 +1,6 @@
 [package]
 name = "FileXSorter"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 authors = ["Ivan Ryukendo"]
 description = "A lightweight Windows file duplicate detection and sorting tool"
@@ -51,6 +51,9 @@ open = "5.0"
 
 # Date/time formatting
 chrono = "0.4"
+
+# UUID generation for unique filenames
+uuid = { version = "1.11", features = ["v4", "serde"] }
 
 [profile.release]
 opt-level = 3

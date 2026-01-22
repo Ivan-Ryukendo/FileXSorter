@@ -1,6 +1,6 @@
 # FileXSorter
 
-![Version](https://img.shields.io/badge/version-0.3.2-blue)
+![Version](https://img.shields.io/badge/version-0.3.3-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -93,10 +93,20 @@ cargo build --release
 
 ## Changelog
 
+### v0.3.3 - Security Fixes
+- **Thread Safety** - Parallel hashing limited to bounded thread pool (prevents resource exhaustion)
+- **Image Size Validation** - Max 100MB file size, 16384x16384 dimensions before loading
+- **Path Sanitization** - Explorer commands validate paths (prevents path traversal attacks)
+- **Symlink Protection** - Directory walking no longer follows symbolic links
+- **File Size Limit** - Files >10GB are skipped during hashing to prevent memory issues
+- **LRU Image Cache** - Max 50 cached images with automatic eviction (prevents memory leak)
+- **UUID Generation** - Proper cryptographically-secure UUIDs for unique filenames
+- **Folder Validation** - Validates folder paths exist before adding to scan list
+
 ### v0.3.2
-- **Resizable Preview Panel** - Drag the edge to resize preview panel width (150-400px)
+- **Resizable Preview Panel** - Drag edge to resize (150-400px range)
 - **Fixed Preview Panel** - Now always anchored to right side using proper SidePanel
-- **Fixed Status Bar** - Permanently anchored at bottom, never overlaps content
+- **Fixed Status Bar** - Permanently anchored at bottom (28px), never overlaps content
 - **Full-Height File List** - Uses all available vertical space, no wasted black area
 - **Responsive Layout** - See more files on larger monitors
 - **Scalable Image Preview** - Images scale with panel size for better viewing

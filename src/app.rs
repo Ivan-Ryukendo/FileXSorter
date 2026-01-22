@@ -2,9 +2,9 @@
 //!
 //! This module contains the main application state and egui-based UI.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -15,6 +15,11 @@ use rfd::FileDialog;
 
 use crate::file_ops::{FileOperations, OperationResult};
 use crate::scanner::{format_size, DuplicateGroup, FileEntry, ScanResult, Scanner, ScannerConfig};
+
+// Security constants
+const MAX_IMAGE_DIMENSIONS: u32 = 16384;
+const MAX_IMAGE_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_CACHED_IMAGES: usize = 50;
 
 /// Shared state for background scanning
 struct ScanState {
@@ -60,6 +65,19 @@ struct FilePreview {
     dimensions: Option<(u32, u32)>,
 }
 
+#[derive(Clone)]
+enum ConfirmationDialog {
+    DeleteFiles(Vec<PathBuf>),
+    MoveFiles(Vec<PathBuf>, PathBuf),
+}
+
+#[derive(Clone)]
+enum MessageType {
+    Info,
+    Success,
+    Error,
+}
+
 /// Application state
 pub struct FileXSorterApp {
     selected_folders: Vec<PathBuf>,
@@ -73,22 +91,10 @@ pub struct FileXSorterApp {
     show_preview_panel: bool,
     preview_panel_width: f32,
     loaded_images: HashMap<PathBuf, egui::TextureHandle>,
+    image_access_order: VecDeque<PathBuf>,
     file_ops: FileOperations,
     show_confirmation_dialog: Option<ConfirmationDialog>,
     status_message: Option<(String, MessageType)>,
-}
-
-#[derive(Clone)]
-enum ConfirmationDialog {
-    DeleteFiles(Vec<PathBuf>),
-    MoveFiles(Vec<PathBuf>, PathBuf),
-}
-
-#[derive(Clone)]
-enum MessageType {
-    Info,
-    Success,
-    Error,
 }
 
 impl Default for FileXSorterApp {
@@ -105,6 +111,7 @@ impl Default for FileXSorterApp {
             show_preview_panel: true,
             preview_panel_width: 220.0,
             loaded_images: HashMap::new(),
+            image_access_order: VecDeque::new(),
             file_ops: FileOperations::new(),
             show_confirmation_dialog: None,
             status_message: None,
@@ -132,12 +139,64 @@ impl FileXSorterApp {
         }
     }
 
+    /// Validate folder path before adding
+    fn is_valid_folder(path: &Path) -> bool {
+        path.exists() && path.is_dir()
+    }
+
+    /// Validate and sanitize path for use with Windows Explorer
+    fn sanitize_path_for_explorer(path: &Path) -> Result<PathBuf, String> {
+        for component in path.components() {
+            match component {
+                Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {}
+                Component::ParentDir | Component::CurDir => {
+                    return Err("Invalid path: path traversal detected".to_string());
+                }
+            }
+        }
+
+        let canonical = path
+            .canonicalize()
+            .map_err(|e| format!("Invalid path: {}", e))?;
+
+        if !canonical.exists() || !canonical.is_file() {
+            return Err("File does not exist".to_string());
+        }
+
+        Ok(canonical)
+    }
+
     /// Open file with default system application
     fn open_file_with_default(path: &PathBuf) {
         let _ = open::that(path);
     }
 
-    /// Open folder and select the specific file in Windows Explorer
+    /// Open folder and select the specific file in Windows Explorer (with path validation)
+    fn open_folder_and_select_file_safe(&mut self, path: &PathBuf) {
+        let safe_path = match Self::sanitize_path_for_explorer(path) {
+            Ok(p) => p,
+            Err(e) => {
+                self.status_message = Some((e, MessageType::Error));
+                return;
+            }
+        };
+
+        #[cfg(target_os = "windows")]
+        {
+            let _ = Command::new("explorer")
+                .arg("/select,")
+                .arg(&safe_path)
+                .spawn();
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            if let Some(parent) = safe_path.parent() {
+                let _ = open::that(parent);
+            }
+        }
+    }
+
+    /// Open folder and select file (static version for use in render functions)
     fn open_folder_and_select_file(path: &PathBuf) {
         #[cfg(target_os = "windows")]
         {
@@ -165,6 +224,7 @@ impl FileXSorterApp {
         self.selected_files.clear();
         self.preview_file = None;
         self.loaded_images.clear();
+        self.image_access_order.clear();
         self.scan_state = Arc::new(ScanState::new());
 
         let folders = self.selected_folders.clone();
@@ -286,12 +346,32 @@ impl FileXSorterApp {
         path: &PathBuf,
         max_size: f32,
     ) -> Option<egui::TextureHandle> {
+        // Check cache first
         if let Some(texture) = self.loaded_images.get(path) {
             return Some(texture.clone());
         }
 
+        // Security: Validate file size before loading
+        let metadata = match fs::metadata(path) {
+            Ok(m) => m,
+            Err(_) => return None,
+        };
+
+        if metadata.len() > MAX_IMAGE_BYTES {
+            return None;
+        }
+
+        // Security: Validate image dimensions before loading
+        if let Ok(dimensions) = image::image_dimensions(path) {
+            if dimensions.0 > MAX_IMAGE_DIMENSIONS || dimensions.1 > MAX_IMAGE_DIMENSIONS {
+                return None;
+            }
+        } else {
+            return None;
+        }
+
+        // Load and resize image
         if let Ok(img) = image::open(path) {
-            // Resize for preview to save memory
             let img = img.thumbnail(max_size as u32, max_size as u32);
             let img = img.to_rgba8();
             let size = [img.width() as usize, img.height() as usize];
@@ -302,17 +382,27 @@ impl FileXSorterApp {
                 color_image,
                 egui::TextureOptions::LINEAR,
             );
+
+            // LRU cache management
+            if self.loaded_images.len() >= MAX_CACHED_IMAGES {
+                if let Some(oldest) = self.image_access_order.pop_front() {
+                    self.loaded_images.remove(&oldest);
+                }
+            }
+
             self.loaded_images.insert(path.clone(), texture.clone());
-            return Some(texture);
+            self.image_access_order.push_back(path.clone());
+            Some(texture)
+        } else {
+            None
         }
-        None
     }
 
     fn render_header(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.heading("FileXSorter");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("v0.3.2");
+                ui.label("v0.3.3");
                 ui.separator();
                 ui.checkbox(&mut self.show_preview_panel, "Preview");
             });
@@ -325,8 +415,11 @@ impl FileXSorterApp {
             ui.label("Folders:");
             if ui.button("Add").clicked() && !self.is_scanning {
                 if let Some(folder) = FileDialog::new().pick_folder() {
-                    if !self.selected_folders.contains(&folder) {
+                    if Self::is_valid_folder(&folder) && !self.selected_folders.contains(&folder) {
                         self.selected_folders.push(folder);
+                    } else if !Self::is_valid_folder(&folder) {
+                        self.status_message =
+                            Some(("Invalid folder selected".to_string(), MessageType::Error));
                     }
                 }
             }
@@ -402,7 +495,6 @@ impl FileXSorterApp {
 
         ui.separator();
 
-        // Compact summary line
         ui.label(format!(
             "Scanned {} files ({}) | {} groups | {} duplicates | {} wasted",
             result.total_files,
@@ -414,7 +506,6 @@ impl FileXSorterApp {
 
         ui.separator();
 
-        // Action buttons
         ui.horizontal(|ui| {
             let count = self.selected_files.len();
             if ui
@@ -450,7 +541,6 @@ impl FileXSorterApp {
 
         ui.separator();
 
-        // File list - uses ALL available space
         let available = ui.available_size();
         egui::ScrollArea::vertical()
             .id_salt("main_list")
@@ -483,7 +573,6 @@ impl FileXSorterApp {
                 }
             };
 
-            // File info
             ui.label(egui::RichText::new(&preview.name).strong().size(11.0));
             ui.label(format!(
                 "{} | {}",
@@ -497,12 +586,10 @@ impl FileXSorterApp {
 
             ui.add_space(8.0);
 
-            // Calculate available space for content
             let header_used = 90.0;
             let button_height = 35.0;
             let content_height = (available_height - header_used - button_height).max(80.0);
 
-            // Content preview - scales with panel size
             match preview.file_type {
                 FileType::Image | FileType::Gif => {
                     if let Some(texture) = self.load_image_texture(ctx, &preview.path, width * 2.0)
@@ -545,7 +632,6 @@ impl FileXSorterApp {
 
             ui.add_space(8.0);
 
-            // Action buttons at bottom
             ui.horizontal(|ui| {
                 if ui
                     .button("Open")
@@ -700,7 +786,6 @@ impl FileXSorterApp {
 
     fn render_status_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            // Status message on left
             if let Some((msg, msg_type)) = &self.status_message {
                 let color = match msg_type {
                     MessageType::Info => egui::Color32::GRAY,
@@ -710,7 +795,6 @@ impl FileXSorterApp {
                 ui.label(egui::RichText::new(msg).color(color));
             }
 
-            // Selection info on right
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if !self.selected_files.is_empty() {
                     let size: u64 = self
@@ -737,14 +821,12 @@ impl eframe::App for FileXSorterApp {
             ctx.request_repaint();
         }
 
-        // Bottom panel for status bar - always anchored at bottom
         egui::TopBottomPanel::bottom("status_bar")
             .exact_height(28.0)
             .show(ctx, |ui| {
                 self.render_status_bar(ui);
             });
 
-        // Right panel for preview - resizable, always anchored to right
         if self.show_preview_panel {
             egui::SidePanel::right("preview_panel")
                 .resizable(true)
@@ -756,7 +838,6 @@ impl eframe::App for FileXSorterApp {
                 });
         }
 
-        // Central panel for main content - fills remaining space
         egui::CentralPanel::default().show(ctx, |ui| {
             self.render_header(ui);
             self.render_folder_selection(ui);

@@ -5,6 +5,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 /// Result of a file operation
 #[derive(Debug, Clone)]
@@ -84,9 +85,11 @@ impl FileOperations {
 
     /// Move a file to a destination directory
     pub fn move_file(&mut self, source: &Path, dest_dir: &Path) -> OperationResult {
-        // Ensure destination directory exists
-        if !dest_dir.exists() {
-            if let Err(e) = fs::create_dir_all(dest_dir) {
+        // Ensure destination directory exists (handle race condition directly)
+        match fs::create_dir_all(dest_dir) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => {
                 let msg = format!("Failed to create directory {}: {}", dest_dir.display(), e);
                 return OperationResult::Error(msg);
             }
@@ -96,7 +99,7 @@ impl FileOperations {
         let file_name = source.file_name().unwrap_or_default();
         let mut dest_path = dest_dir.join(file_name);
 
-        // Handle filename conflicts
+        // Handle filename conflicts - generate unique path if file exists
         if dest_path.exists() {
             dest_path = generate_unique_path(&dest_path);
         }
@@ -199,13 +202,9 @@ fn generate_unique_path(path: &Path) -> PathBuf {
     }
 }
 
-/// Generate a simple unique ID
+/// Generate a cryptographically secure unique ID
 fn uuid_simple() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    format!("{}{}", duration.as_secs(), duration.subsec_nanos())
+    Uuid::new_v4().to_string()
 }
 
 #[cfg(test)]
