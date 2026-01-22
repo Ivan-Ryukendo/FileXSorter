@@ -1,86 +1,171 @@
 # Feature Roadmap
 
-## Implemented Features
+## Completed Features
 
-### v0.3.1 (Current)
-- [x] **Fixed Preview Panel**: Compact layout, max 25% width
-- [x] **File Selection in Explorer**: Open button now selects file in Explorer
-- [x] **Open with Default App**: New button in preview panel
-- [x] **Responsive Layout**: Better window resize handling
-- [x] **Memory Optimization**: Thumbnail-based image preview
-
-### v0.3.0
-- [x] **Image Preview**: View PNG, JPG, GIF, BMP, WEBP images
-- [x] **File Type Icons**: Visual indicators in duplicate list
-- [x] **Video/Audio Info**: Display format information
-
-### v0.2.0
-- [x] **Multi-Folder Scanning**: Scan multiple directories in one session
-- [x] **Content Preview**: Preview files before deciding to delete/move
-- [x] **Space Analysis**: See storage usage breakdown by folder
-
-### v0.1.0
-- [x] **Duplicate Detection**: SHA-256 hash-based detection
-- [x] **Delete/Move Operations**: Remove or relocate duplicates
-- [x] **Recursive Scanning**: Optional subfolder scanning
+| Version | Features |
+|---------|----------|
+| v0.3.2 | Status bar fixed to bottom, panel-based UI layout |
+| v0.3.1 | Preview panel layout fix, file selection in Explorer, open with default app |
+| v0.3.0 | Image preview (PNG/JPG/GIF/BMP/WEBP), file type icons, video/audio indicators |
+| v0.2.0 | Multi-folder scanning, file preview panel, text content preview, space analysis |
+| v0.1.0 | SHA-256 duplicate detection, delete/move operations, recursive scanning |
 
 ---
 
-## Suggested Future Features
+## Planned Features
 
-### Tagging & Organization System
-- **Custom Tag Creation**: Allow users to create, edit, and delete custom tags (e.g., "Work", "Photos", "Archive")
-- **Bulk Tagging**: Select multiple files and apply tags in one action
-- **Tag-Based Filtering**: Filter file views by one or multiple tags
-- **Auto-Tagging Rules**: Create rules to automatically tag files based on extension, folder, or name patterns
-- **Tag Colors & Icons**: Visual customization for easier identification
+### AI-Powered Detection (Phase A)
 
-### Database & Persistence
-- **Local SQLite Database**: Lightweight embedded database for storing file metadata and tags
-- **Database Export/Import**: Backup and restore tag data
-- **File Index Caching**: Store hash results to speed up repeat scans
-- **Database Search**: Fast query-based file lookup by name, tag, size, or date
-- **Multiple Database Profiles**: Support different databases for different projects/folders
+- [ ] **A1. Perceptual Image Hashing**
+  - Find visually similar images using pHash/dHash algorithms
+  - Configurable similarity threshold (0-100%)
+  - Detect resized, cropped, or re-encoded duplicates
 
-### Advanced Duplicate Detection
-- **Fuzzy Name Matching**: Detect similar filenames (e.g., "photo1.jpg" vs "photo_1.jpg")
-- **Extension Detection**: Detect similar filenames with different extensions (e.g., "photo1.jpg" vs "photo1.png")
-- **Image Similarity Detection**: Find visually similar images using perceptual hashing
-- **Audio Fingerprinting**: Detect duplicate audio files even with different metadata
-- ~~**Content Preview**: Preview files before deciding to delete/move~~ (Implemented v0.2.0)
-- **Duplicate Age Priority**: Suggest keeping the oldest or newest file
+- [ ] **A2. Local AI Image Models**
+  - On-device neural network inference (ONNX Runtime or Tract)
+  - Feature extraction using MobileNet/EfficientNet-Lite
+  - No cloud dependency, full privacy
 
-### Sorting & File Management
-- **Custom Sort Rules**: Sort files into folders based on extension, date, size, or tags
-- **Scheduled Scans**: Automatic periodic scanning of designated folders
-- **Folder Watching**: Real-time monitoring for new duplicates
-- **Batch Rename**: Rename files using patterns and templates
-- **File Compression**: Option to compress duplicates instead of deleting
+- [ ] **A3. Cloud AI Integration (Optional)**
+  - Support for Google Vision, Azure, OpenAI CLIP APIs
+  - Opt-in with API key configuration
+  - Batch processing with rate limiting
 
-### User Experience Enhancements
-- **Dark/Light Theme Toggle**: User-selectable color schemes
-- **Scan History**: Log of previous scans with results summary
-- **Undo Support**: Recover recently deleted/moved files
-- **Keyboard Shortcuts**: Power-user navigation
-- **Drag & Drop**: Drop folders onto the app to scan
-- **Context Menu Integration**: Right-click "Scan for duplicates" in Windows Explorer
-- **System Tray Mode**: Minimize to tray for background monitoring
+- [ ] **A4. Audio Fingerprinting**
+  - Detect audio duplicates regardless of format/bitrate
+  - Chromaprint/AcoustID integration
+  - Find MP3/FLAC copies of same audio
 
-### Reporting & Export
-- **HTML/PDF Reports**: Generate shareable duplicate reports
-- **CSV Export**: Export file lists for external processing
-- **Statistics Dashboard**: Visual charts showing storage usage, duplicate counts, etc.
-- **Space Savings Calculator**: Show potential disk space recovery
+---
 
-### Performance & Scale
-- **Network Drive Support**: Scan mapped drives and UNC paths
-- ~~**Multi-Folder Scanning**: Scan multiple directories in one session~~ (Implemented v0.2.0)
-- **Exclusion Patterns**: Ignore specific folders, file types, or name patterns
-- **Pause/Resume Scanning**: Interrupt long scans without losing progress
-- **Memory-Efficient Mode**: Stream processing for very large directories
+### Database & Tagging (Phase B)
 
-### Integration & Extensibility
-- **Plugin System**: Allow third-party extensions
-- **Command-Line Interface**: CLI mode for scripting and automation
-- **Cloud Storage Support**: Scan OneDrive, Google Drive, Dropbox folders
-- **API/Scripting**: Expose functionality for external tools
+- [ ] **B1. SQLite Database**
+  - Persistent storage for file metadata
+  - Scan history with statistics
+  - Fast query-based file lookup
+
+- [ ] **B2. File Tagging System**
+  - Create custom tags with colors
+  - Bulk tagging for selected files
+  - Tag-based filtering in results
+  - Auto-tag rules by extension/folder
+
+- [ ] **B3. Smart Collections**
+  - Dynamic groups: "Large duplicates >100MB", "Old files"
+  - Saved filter presets
+  - Live updating results
+
+- [ ] **B4. Hash Caching**
+  - Skip re-hashing unchanged files
+  - 10x+ speedup on repeat scans
+  - Invalidation by modified date/size
+
+---
+
+### Advanced Detection (Phase C)
+
+- [ ] **C1. Fuzzy Filename Matching**
+  - Detect similar names: "photo1.jpg" vs "photo_1.jpg"
+  - Levenshtein distance with configurable threshold
+
+- [ ] **C2. Cross-Extension Detection**
+  - Find same content in different formats
+  - "document.doc" vs "document.docx"
+
+- [ ] **C3. Duplicate Age Priority**
+  - Suggest which duplicate to keep
+  - Options: oldest, newest, largest, preferred folder
+
+---
+
+### User Experience (Phase D)
+
+- [ ] **D1. Dark/Light Theme**
+  - System default, Dark, Light themes
+  - Persistent preference
+
+- [ ] **D2. Keyboard Shortcuts**
+  - Ctrl+O: Add folder | Ctrl+S: Scan
+  - Delete: Remove selected | Space: Toggle selection
+
+- [ ] **D3. Drag & Drop**
+  - Drop folders onto window to add
+
+- [ ] **D4. Scan History**
+  - List of previous scans with results
+  - Statistics: total space recovered
+
+- [ ] **D5. Undo/Recycle Bin**
+  - Move to Recycle Bin option
+  - Recover accidentally deleted files
+
+---
+
+### Performance & Scale (Phase E)
+
+- [ ] **E1. Pause/Resume Scanning**
+  - Interrupt long scans, resume later
+  - Save scan state to disk
+
+- [ ] **E2. Exclusion Patterns**
+  - Ignore folders: .git, node_modules
+  - Ignore file types: *.tmp, *.log
+
+- [ ] **E3. Network Drive Support**
+  - Scan mapped drives and UNC paths
+  - Handle timeouts gracefully
+
+- [ ] **E4. Memory-Efficient Mode**
+  - Stream processing for huge directories
+  - Chunked processing, disk-based temp storage
+
+---
+
+### Export & Reporting (Phase F)
+
+- [ ] **F1. CSV/JSON Export**
+  - Export duplicate list with all metadata
+  - Compatible with Excel, scripts
+
+- [ ] **F2. HTML Report**
+  - Shareable visual report
+  - Summary, charts, duplicate groups
+
+- [ ] **F3. Statistics Dashboard**
+  - In-app charts and graphs
+  - Storage by type, trends over time
+
+---
+
+### Integration & Automation (Phase G)
+
+- [ ] **G1. Command-Line Interface**
+  - CLI mode for scripting
+  - `filexsorter scan`, `filexsorter delete-dupes`
+
+- [ ] **G2. Windows Context Menu**
+  - Right-click folder -> "Scan for Duplicates"
+  - Registry integration
+
+- [ ] **G3. Scheduled Scans**
+  - Windows Task Scheduler integration
+  - Automatic periodic scanning
+
+- [ ] **G4. System Tray Mode**
+  - Background folder monitoring
+  - Notification on new duplicates
+
+---
+
+## Priority Matrix
+
+| Priority | Features |
+|----------|----------|
+| **High** | A1 (Perceptual Hash), B1 (Database), B2 (Tagging), B4 (Hash Cache) |
+| **Medium** | A2 (Local AI), C1 (Fuzzy Names), D1 (Themes), D2 (Shortcuts), E2 (Exclusions) |
+| **Low** | A3 (Cloud AI), F1-F3 (Export), G1-G4 (Integration) |
+
+## Contribution
+
+Want to help implement a feature? Check the [GitHub Issues](../../issues) or submit a PR!

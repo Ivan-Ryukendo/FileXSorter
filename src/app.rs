@@ -71,6 +71,7 @@ pub struct FileXSorterApp {
     selected_files: Vec<(usize, usize)>,
     preview_file: Option<FilePreview>,
     show_preview_panel: bool,
+    preview_panel_width: f32,
     loaded_images: HashMap<PathBuf, egui::TextureHandle>,
     file_ops: FileOperations,
     show_confirmation_dialog: Option<ConfirmationDialog>,
@@ -102,6 +103,7 @@ impl Default for FileXSorterApp {
             selected_files: Vec::new(),
             preview_file: None,
             show_preview_panel: true,
+            preview_panel_width: 220.0,
             loaded_images: HashMap::new(),
             file_ops: FileOperations::new(),
             show_confirmation_dialog: None,
@@ -310,7 +312,7 @@ impl FileXSorterApp {
         ui.horizontal(|ui| {
             ui.heading("FileXSorter");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("v0.3.1");
+                ui.label("v0.3.2");
                 ui.separator();
                 ui.checkbox(&mut self.show_preview_panel, "Preview");
             });
@@ -384,7 +386,7 @@ impl FileXSorterApp {
         });
     }
 
-    fn render_results(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    fn render_results_only(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
         let result = match self.scan_result.clone() {
             Some(r) => r,
             None => {
@@ -448,34 +450,118 @@ impl FileXSorterApp {
 
         ui.separator();
 
-        // Calculate layout
+        // File list - uses ALL available space
         let available = ui.available_size();
-        let preview_width = if self.show_preview_panel {
-            200.0_f32.min(available.x * 0.25)
-        } else {
-            0.0
-        };
-        let list_width = available.x - preview_width - 8.0;
-
-        ui.horizontal(|ui| {
-            // Main file list
-            ui.vertical(|ui| {
-                ui.set_width(list_width);
-                egui::ScrollArea::vertical()
-                    .id_salt("main_list")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        for (group_idx, group) in result.duplicate_groups.iter().enumerate() {
-                            self.render_group(ui, group_idx, group);
-                        }
-                    });
+        egui::ScrollArea::vertical()
+            .id_salt("main_list")
+            .auto_shrink([false, false])
+            .max_height(available.y)
+            .show(ui, |ui| {
+                for (group_idx, group) in result.duplicate_groups.iter().enumerate() {
+                    self.render_group(ui, group_idx, group);
+                }
             });
+    }
 
-            // Preview panel
-            if self.show_preview_panel {
-                ui.separator();
-                self.render_preview(ui, ctx, preview_width - 10.0);
+    fn render_preview_panel(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let available_height = ui.available_height();
+        let width = ui.available_width();
+
+        ui.vertical(|ui| {
+            ui.label(egui::RichText::new("Preview").strong());
+            ui.separator();
+
+            let preview = match self.preview_file.clone() {
+                Some(p) => p,
+                None => {
+                    ui.label(
+                        egui::RichText::new("Click 👁 to preview a file")
+                            .small()
+                            .italics(),
+                    );
+                    return;
+                }
+            };
+
+            // File info
+            ui.label(egui::RichText::new(&preview.name).strong().size(11.0));
+            ui.label(format!(
+                "{} | {}",
+                format_size(preview.size),
+                preview.extension.to_uppercase()
+            ));
+
+            if let Some((w, h)) = preview.dimensions {
+                ui.label(egui::RichText::new(format!("{}x{}", w, h)).small());
             }
+
+            ui.add_space(8.0);
+
+            // Calculate available space for content
+            let header_used = 90.0;
+            let button_height = 35.0;
+            let content_height = (available_height - header_used - button_height).max(80.0);
+
+            // Content preview - scales with panel size
+            match preview.file_type {
+                FileType::Image | FileType::Gif => {
+                    if let Some(texture) = self.load_image_texture(ctx, &preview.path, width * 2.0)
+                    {
+                        let size = texture.size_vec2();
+                        let scale_w = (width - 10.0) / size.x;
+                        let scale_h = content_height / size.y;
+                        let scale = scale_w.min(scale_h).min(1.0);
+                        ui.image(egui::load::SizedTexture::new(texture.id(), size * scale));
+                    }
+                }
+                FileType::Video => {
+                    ui.vertical_centered(|ui| {
+                        ui.label(egui::RichText::new("🎬").size(64.0));
+                        ui.label("Video File");
+                    });
+                }
+                FileType::Audio => {
+                    ui.vertical_centered(|ui| {
+                        ui.label(egui::RichText::new("🎵").size(64.0));
+                        ui.label("Audio File");
+                    });
+                }
+                FileType::Text => {
+                    if let Some(ref text) = preview.preview_text {
+                        egui::ScrollArea::vertical()
+                            .max_height(content_height)
+                            .show(ui, |ui| {
+                                ui.label(egui::RichText::new(text).monospace().size(10.0));
+                            });
+                    }
+                }
+                FileType::Other => {
+                    ui.vertical_centered(|ui| {
+                        ui.label(egui::RichText::new("📄").size(64.0));
+                        ui.label("File");
+                    });
+                }
+            }
+
+            ui.add_space(8.0);
+
+            // Action buttons at bottom
+            ui.horizontal(|ui| {
+                if ui
+                    .button("Open")
+                    .on_hover_text("Open with default app")
+                    .clicked()
+                {
+                    Self::open_file_with_default(&preview.path);
+                }
+                if ui
+                    .button("Folder")
+                    .on_hover_text("Show in Explorer")
+                    .clicked()
+                {
+                    Self::open_folder_and_select_file(&preview.path);
+                }
+            });
         });
     }
 
@@ -540,85 +626,6 @@ impl FileXSorterApp {
                     });
                 }
             });
-    }
-
-    fn render_preview(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, width: f32) {
-        ui.vertical(|ui| {
-            ui.set_width(width);
-            ui.label(egui::RichText::new("Preview").strong());
-            ui.separator();
-
-            let preview = match self.preview_file.clone() {
-                Some(p) => p,
-                None => {
-                    ui.label(egui::RichText::new("Click 👁 to preview").small().italics());
-                    return;
-                }
-            };
-
-            ui.label(egui::RichText::new(&preview.name).strong().size(11.0));
-            ui.label(format!(
-                "{} | {}",
-                format_size(preview.size),
-                preview.extension.to_uppercase()
-            ));
-
-            if let Some((w, h)) = preview.dimensions {
-                ui.label(egui::RichText::new(format!("{}x{}", w, h)).small());
-            }
-
-            ui.add_space(4.0);
-
-            // Compact preview
-            match preview.file_type {
-                FileType::Image | FileType::Gif => {
-                    if let Some(texture) = self.load_image_texture(ctx, &preview.path, width * 2.0)
-                    {
-                        let size = texture.size_vec2();
-                        let scale = (width / size.x).min(120.0 / size.y).min(1.0);
-                        ui.image(egui::load::SizedTexture::new(texture.id(), size * scale));
-                    }
-                }
-                FileType::Video => {
-                    ui.label(egui::RichText::new("🎬").size(24.0));
-                    ui.label("Video");
-                }
-                FileType::Audio => {
-                    ui.label(egui::RichText::new("🎵").size(24.0));
-                    ui.label("Audio");
-                }
-                FileType::Text => {
-                    if let Some(ref text) = preview.preview_text {
-                        egui::ScrollArea::vertical()
-                            .max_height(80.0)
-                            .show(ui, |ui| {
-                                ui.label(egui::RichText::new(text).monospace().size(9.0));
-                            });
-                    }
-                }
-                FileType::Other => {
-                    ui.label("📄");
-                }
-            }
-
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                if ui
-                    .small_button("Open")
-                    .on_hover_text("Open with default app")
-                    .clicked()
-                {
-                    Self::open_file_with_default(&preview.path);
-                }
-                if ui
-                    .small_button("Folder")
-                    .on_hover_text("Show in Explorer")
-                    .clicked()
-                {
-                    Self::open_folder_and_select_file(&preview.path);
-                }
-            });
-        });
     }
 
     fn render_confirmation_dialog(&mut self, ctx: &egui::Context) {
@@ -692,7 +699,6 @@ impl FileXSorterApp {
     }
 
     fn render_status_bar(&mut self, ui: &mut egui::Ui) {
-        ui.separator();
         ui.horizontal(|ui| {
             // Status message on left
             if let Some((msg, msg_type)) = &self.status_message {
@@ -731,11 +737,30 @@ impl eframe::App for FileXSorterApp {
             ctx.request_repaint();
         }
 
+        // Bottom panel for status bar - always anchored at bottom
+        egui::TopBottomPanel::bottom("status_bar")
+            .exact_height(28.0)
+            .show(ctx, |ui| {
+                self.render_status_bar(ui);
+            });
+
+        // Right panel for preview - resizable, always anchored to right
+        if self.show_preview_panel {
+            egui::SidePanel::right("preview_panel")
+                .resizable(true)
+                .default_width(self.preview_panel_width)
+                .width_range(150.0..=400.0)
+                .show(ctx, |ui| {
+                    self.preview_panel_width = ui.available_width();
+                    self.render_preview_panel(ui, ctx);
+                });
+        }
+
+        // Central panel for main content - fills remaining space
         egui::CentralPanel::default().show(ctx, |ui| {
             self.render_header(ui);
             self.render_folder_selection(ui);
-            self.render_results(ui, ctx);
-            self.render_status_bar(ui);
+            self.render_results_only(ui, ctx);
         });
 
         self.render_confirmation_dialog(ctx);

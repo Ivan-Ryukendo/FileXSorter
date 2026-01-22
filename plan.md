@@ -1,132 +1,249 @@
 # Development Plan
 
-## Preferred Language
-
-**Rust**
-
-Rust is selected for the following reasons:
-- **Performance**: Near C-level speed with zero-cost abstractions, ideal for file I/O operations
-- **Memory Safety**: Prevents common bugs without garbage collection overhead
-- **Small Binaries**: Compiles to a single lightweight `.exe` with no runtime dependencies
-- **Cross-platform**: Easy Windows native development with excellent filesystem APIs
-- **Concurrency**: Safe multi-threading for parallel file hashing (significant speed boost)
-
 ## Overview
 
-**File X Sorter** is a lightweight Windows GUI application for detecting duplicate files. The tool scans user-selected directories, identifies duplicates using a two-stage detection system (filename matching + cryptographic hash verification), and provides options to delete or move duplicate files. The application features an optional recursive subfolder scan toggle, ensuring flexibility for different use cases.
+**FileXSorter** is a lightweight Windows GUI application for detecting duplicate files using SHA-256 hash verification. Built with Rust and egui for optimal performance and minimal binary size.
 
-### Core Workflow
-1. User adds one or more folders to scan
-2. User toggles recursive scanning on/off
-3. Application scans and identifies duplicates across all folders
-4. Results displayed in a clear, grouped list with preview panel
-5. User can preview files and select duplicates to delete or move
+## Technology Stack
 
-## Version History
+| Component | Technology | Rationale |
+|-----------|------------|-----------|
+| Language | Rust | Memory safety, performance, small binaries |
+| GUI | eframe/egui | Immediate-mode, cross-platform, fast |
+| Hashing | SHA-256 | Cryptographic strength, collision resistance |
+| Threading | Rayon | Safe parallel processing |
 
-### v0.3.1 (Current)
-- Fixed preview panel layout (compact, max 25% width)
-- Fixed "Open" button to select file in Explorer
-- Added "Open with default app" in preview panel
-- Removed duplicate status text display
-- Improved responsive window layout
-- Optimized image preview with thumbnails
+---
 
-### v0.3.0
-- Image preview support (PNG, JPG, GIF, BMP, WEBP)
-- Video/audio file type indicators
-- File type icons in duplicate list
+## Completed Versions
 
-### v0.2.0
-- Multi-folder scanning support
-- File preview panel with content preview
-- Space analysis by folder
-- Improved UI with collapsible preview
+| Version | Key Features |
+|---------|--------------|
+| v0.3.2 | Fixed status bar anchoring, proper panel-based layout |
+| v0.3.1 | Preview panel fixes, file selection in Explorer |
+| v0.3.0 | Image preview, file type icons, media detection |
+| v0.2.0 | Multi-folder scanning, file preview panel, space analysis |
+| v0.1.0 | Core duplicate detection, delete/move operations |
 
-### v0.1.0
-- Initial release with core duplicate detection
-- Single folder scanning
-- Delete/move operations
+---
 
-## Step-by-Step Implementation
+## Future Development Phases
 
-### Phase 1: Project Setup [COMPLETED]
-1. Initialize Rust project with Cargo
-2. Configure dependencies in `Cargo.toml`
-3. Set up project structure (src/main.rs, modules)
-4. Configure Windows-specific build settings for `.exe` output
+### Phase A: AI-Powered Duplicate Detection (Priority: High)
 
-### Phase 2: Core Duplicate Detection Engine [COMPLETED]
-5. Implement directory walker with optional recursion toggle
-6. Create file metadata collector (name, size, path)
-7. Implement size-based pre-filtering (files with unique sizes cannot be duplicates)
-8. Implement SHA-256 hashing with chunked reading for large files
-9. Build duplicate grouping logic (group files by hash)
-10. Add progress tracking for scan operations
+Transform duplicate detection from exact-match to intelligent similarity detection using AI/ML techniques.
 
-### Phase 3: File Operations [COMPLETED]
-11. Implement safe file deletion with confirmation
-12. Implement file move operation to user-specified directory
-13. Add error handling for locked/protected files
-14. Create operation logging for user reference
+#### A1. Perceptual Image Hashing
+- **Goal**: Detect visually similar images even with different resolutions, crops, or compression
+- **Implementation**: 
+  - Integrate `image_hasher` crate for pHash/dHash algorithms
+  - Compare perceptual hash distance (Hamming distance threshold)
+  - UI: Similarity slider (0-100%) for match sensitivity
+- **Use Cases**: Find resized copies, screenshots of same content, re-encoded images
 
-### Phase 4: GUI Development [COMPLETED]
-15. Set up `eframe`/`egui` for native Windows GUI
-16. Design main window layout:
-    - Multi-folder selection with add/remove
-    - Recursive scan toggle checkbox
-    - Scan button with progress
-    - Results table/list with preview panel
-17. Implement folder browser dialog (native Windows)
-18. Create results view with duplicate groups
-19. Add selection checkboxes for duplicate files
-20. Implement action buttons (Delete Selected, Move Selected)
-21. Add move destination folder picker
-22. Create confirmation dialogs for destructive actions
+#### A2. Lightweight Local AI Models
+- **Goal**: On-device image similarity using efficient neural networks
+- **Implementation Options**:
+  - **ONNX Runtime**: Run pre-trained models (MobileNet, EfficientNet-Lite) for feature extraction
+  - **Tract**: Pure Rust inference engine, no Python dependency
+  - Model options: CLIP embeddings, ResNet feature vectors
+- **Workflow**: 
+  1. Extract feature vectors from images
+  2. Store in local vector database
+  3. Find nearest neighbors for similarity matching
+- **Performance Target**: <100ms per image on CPU
 
-### Phase 5: Performance Optimization [COMPLETED]
-23. Implement multi-threaded file hashing using `rayon`
-24. Add early-exit optimization (skip hashing unique-sized files)
-25. Implement incremental UI updates during scanning
-26. Optimize memory usage for large directory scans
+#### A3. Cloud AI API Integration (Optional)
+- **Goal**: Advanced similarity detection via external APIs for users who prefer accuracy over privacy
+- **Supported APIs**:
+  - Google Cloud Vision API
+  - Azure Computer Vision
+  - OpenAI CLIP API
+- **Features**:
+  - API key configuration in settings
+  - Batch processing with rate limiting
+  - Fallback to local detection if API unavailable
+- **Privacy**: Opt-in only, clear data handling disclosure
 
-### Phase 6: Enhanced Features [COMPLETED - v0.2.0]
-27. Multi-folder scanning support
-28. File preview panel with metadata display
-29. Text file content preview
-30. Space analysis by folder breakdown
-31. Improved status bar with selection info
+#### A4. Audio Fingerprinting
+- **Goal**: Detect duplicate audio files regardless of format, bitrate, or metadata
+- **Implementation**:
+  - Chromaprint/AcoustID integration
+  - FFT-based audio fingerprinting
+- **Use Cases**: Find MP3/FLAC duplicates, different encodings of same song
 
-### Phase 7: Packaging & Distribution [COMPLETED]
-32. Configure release build optimizations in `Cargo.toml`
-33. Add Windows application manifest and icon
-34. Build final `FileXSorter.exe`
-35. Test on clean Windows system (no Rust installed)
+---
 
-## Requirements
+### Phase B: Database & Tagging System (Priority: High)
 
-### Development Tools
-| Tool | Purpose |
-|------|---------|
-| Rust (stable) | Compiler and toolchain |
-| Cargo | Package manager and build system |
-| Visual Studio Build Tools | Windows linker (MSVC) |
+Add persistent storage for file metadata, tags, and scan history.
 
-### Dependencies (Crates)
+#### B1. SQLite Database Integration
+- **Goal**: Persistent local storage for all file metadata
+- **Schema Design**:
+  ```sql
+  files (id, path, name, size, hash, created_at, modified_at)
+  tags (id, name, color, icon)
+  file_tags (file_id, tag_id)
+  scans (id, folders, timestamp, duplicate_count, wasted_space)
+  scan_results (scan_id, file_id, group_id)
+  ```
+- **Benefits**: 
+  - Instant repeat scans (hash caching)
+  - Persistent tag assignments
+  - Scan history and statistics
+
+#### B2. File Tagging System
+- **Goal**: Organize files with custom tags for better management
+- **Features**:
+  - Create/edit/delete custom tags with colors
+  - Bulk tagging: Select multiple files, apply tags
+  - Tag-based filtering in results view
+  - Auto-tag rules: "All .psd files get 'Design' tag"
+- **UI**: Tag chips in file list, tag filter sidebar
+
+#### B3. Smart Collections
+- **Goal**: Dynamic file groups based on rules
+- **Examples**:
+  - "Large duplicates (>100MB)"
+  - "Old files not accessed in 1 year"
+  - "Photos from 2023"
+- **Implementation**: Saved filter presets with live updating
+
+#### B4. Hash Caching for Fast Rescans
+- **Goal**: Skip re-hashing unchanged files
+- **Implementation**:
+  - Store file path + size + modified_date + hash
+  - On rescan, only hash files with changed metadata
+- **Performance**: 10x+ speedup on repeat scans
+
+---
+
+### Phase C: Advanced Duplicate Detection (Priority: Medium)
+
+#### C1. Fuzzy Filename Matching
+- **Goal**: Detect files with similar names
+- **Examples**: "photo1.jpg" vs "photo_1.jpg" vs "photo (1).jpg"
+- **Algorithm**: Levenshtein distance, configurable threshold
+
+#### C2. Cross-Extension Detection
+- **Goal**: Find same content in different formats
+- **Examples**: "document.doc" vs "document.docx" vs "document.pdf"
+- **Implementation**: Content-based comparison for known format pairs
+
+#### C3. Duplicate Age Priority
+- **Goal**: Smart suggestions for which duplicate to keep
+- **Options**: Keep oldest, keep newest, keep largest, keep from preferred folder
+- **UI**: Highlight recommended file with reason
+
+---
+
+### Phase D: User Experience Enhancements (Priority: Medium)
+
+#### D1. Dark/Light Theme Toggle
+- **Implementation**: egui theme switching, persist preference
+- **Themes**: System default, Dark, Light, High Contrast
+
+#### D2. Keyboard Shortcuts
+- **Shortcuts**:
+  - `Ctrl+O`: Add folder
+  - `Ctrl+S`: Start scan
+  - `Delete`: Delete selected
+  - `Space`: Toggle selection
+  - `P`: Toggle preview panel
+
+#### D3. Drag & Drop Support
+- **Feature**: Drop folders directly onto window to add to scan
+- **Implementation**: eframe drag-drop handling
+
+#### D4. Scan History & Statistics
+- **Features**:
+  - List of previous scans with date, folders, results
+  - Statistics: Total space recovered, files deleted
+  - Charts: Duplicate trends over time
+
+#### D5. Undo/Recycle Bin Integration
+- **Feature**: Move deleted files to Recycle Bin instead of permanent delete
+- **Option**: User toggle between permanent delete and recycle
+
+---
+
+### Phase E: Performance & Scale (Priority: Medium)
+
+#### E1. Pause/Resume Scanning
+- **Feature**: Interrupt long scans, resume later
+- **Implementation**: Serialize scan state to disk
+
+#### E2. Exclusion Patterns
+- **Feature**: Ignore specific folders, file types, or patterns
+- **Examples**: Ignore `.git`, `node_modules`, `*.tmp`
+- **UI**: Pattern list in settings
+
+#### E3. Network Drive Support
+- **Feature**: Scan mapped network drives and UNC paths
+- **Challenges**: Handle timeouts, offline drives gracefully
+
+#### E4. Memory-Efficient Mode
+- **Feature**: Stream processing for directories with millions of files
+- **Implementation**: Chunked processing, disk-based intermediate storage
+
+---
+
+### Phase F: Export & Reporting (Priority: Low)
+
+#### F1. CSV/JSON Export
+- **Feature**: Export duplicate list for external processing
+- **Fields**: Path, size, hash, group ID, tags
+
+#### F2. HTML Report Generation
+- **Feature**: Shareable visual report with charts
+- **Includes**: Summary stats, duplicate groups, space analysis
+
+#### F3. Statistics Dashboard
+- **Feature**: Visual charts in-app
+- **Charts**: Storage by type, duplicate count by folder, trends
+
+---
+
+### Phase G: Integration & Automation (Priority: Low)
+
+#### G1. Command-Line Interface
+- **Feature**: CLI mode for scripting
+- **Commands**: `filexsorter scan <path>`, `filexsorter delete-dupes`
+
+#### G2. Windows Context Menu
+- **Feature**: Right-click folder -> "Scan for Duplicates"
+- **Implementation**: Windows registry integration
+
+#### G3. Scheduled Scans
+- **Feature**: Automatic periodic scanning
+- **Implementation**: Windows Task Scheduler integration
+
+#### G4. System Tray Mode
+- **Feature**: Run in background, notify on new duplicates
+- **Implementation**: Minimize to system tray, folder watching
+
+---
+
+## System Requirements
+
+| Requirement | Specification |
+|-------------|---------------|
+| OS | Windows 10/11 (64-bit) |
+| RAM | 4 GB minimum, 8 GB recommended |
+| Disk | ~5 MB for executable |
+| Runtime | None (standalone) |
+
+## Dependencies
+
 | Crate | Version | Purpose |
 |-------|---------|---------|
-| `eframe` | 0.29 | Cross-platform GUI framework (egui backend) |
-| `egui` | 0.29 | Immediate-mode GUI library |
-| `rfd` | 0.15 | Native file/folder dialogs |
-| `sha2` | 0.10 | SHA-256 hashing |
-| `rayon` | 1.10 | Parallel processing |
-| `walkdir` | 2.5 | Recursive directory traversal |
-| `chrono` | 0.4 | Date/time formatting |
-| `open` | 5.0 | Open files in system explorer |
-| `serde` | 1.0 | Serialization |
-| `serde_json` | 1.0 | JSON support |
-
-### System Requirements
-- Windows 10/11 (64-bit)
-- No runtime dependencies for end users
-- Binary size: ~4 MB
+| eframe | 0.29 | GUI framework |
+| egui | 0.29 | UI library |
+| image | 0.25 | Image processing |
+| sha2 | 0.10 | SHA-256 hashing |
+| rayon | 1.10 | Parallel processing |
+| walkdir | 2.5 | Directory traversal |
+| rfd | 0.15 | File dialogs |
+| rusqlite | TBD | Database (planned) |
+| ort | TBD | ONNX Runtime (planned) |
