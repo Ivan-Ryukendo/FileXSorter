@@ -1,5 +1,7 @@
 /target/
 *.exe
 *.pdb
-File X Sorter.exe
+FileXSorter.exe
 *.png
+plan.md
+roadmap.md

@@ -1,6 +1,6 @@
 # File X Sorter
 
-![Version](https://img.shields.io/badge/version-0.3.0-blue)
+![Version](https://img.shields.io/badge/version-0.3.1-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -68,6 +68,14 @@ cargo build --release
 | Text | TXT, MD, JSON, code files | Content preview |
 
 ## Changelog
+
+### v0.3.1
+- Fixed preview panel layout (now compact, max 25% width)
+- Fixed "Open" button to select file in Explorer (not just open folder)
+- Added "Open with default app" button in preview panel
+- Removed duplicate status text display
+- Improved responsive layout for different window sizes
+- Optimized image preview with thumbnails for memory efficiency
 
 ### v0.3.0
 - Added image preview support (PNG, JPG, GIF, BMP, WEBP)

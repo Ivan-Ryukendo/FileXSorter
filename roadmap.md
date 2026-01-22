@@ -2,7 +2,19 @@
 
 ## Implemented Features
 
-### v0.2.0 (Current)
+### v0.3.1 (Current)
+- [x] **Fixed Preview Panel**: Compact layout, max 25% width
+- [x] **File Selection in Explorer**: Open button now selects file in Explorer
+- [x] **Open with Default App**: New button in preview panel
+- [x] **Responsive Layout**: Better window resize handling
+- [x] **Memory Optimization**: Thumbnail-based image preview
+
+### v0.3.0
+- [x] **Image Preview**: View PNG, JPG, GIF, BMP, WEBP images
+- [x] **File Type Icons**: Visual indicators in duplicate list
+- [x] **Video/Audio Info**: Display format information
+
+### v0.2.0
 - [x] **Multi-Folder Scanning**: Scan multiple directories in one session
 - [x] **Content Preview**: Preview files before deciding to delete/move
 - [x] **Space Analysis**: See storage usage breakdown by folder

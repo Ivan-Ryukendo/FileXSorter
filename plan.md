@@ -24,7 +24,20 @@ Rust is selected for the following reasons:
 
 ## Version History
 
-### v0.2.0 (Current)
+### v0.3.1 (Current)
+- Fixed preview panel layout (compact, max 25% width)
+- Fixed "Open" button to select file in Explorer
+- Added "Open with default app" in preview panel
+- Removed duplicate status text display
+- Improved responsive window layout
+- Optimized image preview with thumbnails
+
+### v0.3.0
+- Image preview support (PNG, JPG, GIF, BMP, WEBP)
+- Video/audio file type indicators
+- File type icons in duplicate list
+
+### v0.2.0
 - Multi-folder scanning support
 - File preview panel with content preview
 - Space analysis by folder
