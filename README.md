@@ -1,6 +1,6 @@
 # File X Sorter
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/badge/version-0.2.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -8,15 +8,25 @@ A lightweight, fast Windows application for detecting and managing duplicate fil
 
 ## Features
 
+### Core Features
 - **Fast Duplicate Detection** - Two-stage detection (size pre-filter + SHA-256 hash) for optimal performance
 - **Multi-threaded Scanning** - Parallel file hashing using Rayon for speed
 - **Recursive/Non-recursive Scans** - Toggle subfolder scanning as needed
 - **Clean GUI** - Built with egui for a modern, responsive interface
-- **File Management** - Delete or move duplicate files directly from the app
-- **Progress Tracking** - Real-time progress indicator during scans
-- **Intelligent Grouping** - Duplicates sorted by wasted space (largest first)
-- **Windows Explorer Integration** - Open folder location with one click
-- **Standalone Executable** - No runtime dependencies, single 3.9 MB exe
+- **Standalone Executable** - No runtime dependencies, single ~4 MB exe
+
+### New in v0.2.0
+- **Multi-Folder Scanning** - Add multiple directories to scan in one session
+- **File Preview Panel** - View file details, size, and content preview before taking action
+- **Space Analysis** - See which folders contain the most duplicate data
+- **Text File Preview** - Preview contents of text files (txt, md, rs, py, js, etc.)
+- **Improved Status Bar** - Shows selected file count and total size
+
+### File Management
+- **Delete Duplicates** - Remove selected duplicate files with confirmation
+- **Move Duplicates** - Move files to a specified folder instead of deleting
+- **Open in Explorer** - Quick access to file locations
+- **Smart Selection** - Select all duplicates with one click (keeps first file)
 
 ## Screenshots
 
@@ -26,7 +36,7 @@ A lightweight, fast Windows application for detecting and managing duplicate fil
 
 ### Download the Executable
 
-1. Download the latest `File X Sorter.exe` from the [Releases](releases) page
+1. Download the latest `File X Sorter.exe` from the [Releases](../../releases) page
 2. Place it anywhere on your computer
 3. Double-click to run - no installation required
 
@@ -36,7 +46,7 @@ If you have Rust installed, you can build from source:
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/FileXSorter.git
+git clone https://github.com/Ivan-Ryukendo/FileXSorter.git
 cd FileXSorter
 
 # Build release version
@@ -48,28 +58,44 @@ cargo build --release
 
 ## Usage
 
-1. **Select Folder**: Click "Browse..." to choose the directory you want to scan
+### Basic Workflow
+
+1. **Add Folders**: Click "Add Folder" to select directories to scan
+   - Add multiple folders to compare files across different locations
+   - Remove folders using the "X" button next to each path
 2. **Configure Scan**: Toggle "Scan subfolders" on or off as needed
 3. **Start Scan**: Click "Scan for Duplicates" to begin
 4. **Review Results**: Duplicate groups are displayed, sorted by wasted space
-5. **Select Files**: Check the duplicates you want to remove (first file in each group is marked [KEEP])
-6. **Take Action**: 
+5. **Preview Files**: Click "Preview" to see file details in the right panel
+6. **Select Files**: Check the duplicates you want to remove (first file marked [KEEP])
+7. **Take Action**: 
    - Click "Delete Selected" to permanently remove duplicates
    - Click "Move Selected" to move duplicates to another folder
-7. **Confirmation**: Confirm the action in the dialog
+
+### Preview Panel
+
+The preview panel shows:
+- File name, size, and type
+- Last modified date
+- Text content preview (for supported file types)
+- Full file path
+- Quick actions (Open File, Open Folder)
+
+When no file is selected, it displays a breakdown of space usage by folder.
 
 ### Tips
 
 - Use "Select All Duplicates" to quickly select all but one copy from each group
-- Click "Open Folder" next to any file to view it in Windows Explorer
+- Toggle "Show Preview" in the header to hide/show the preview panel
+- Click "Open" next to any file to view it in Windows Explorer
 - Cancel a long-running scan using the "Cancel" button
-- Results show total files scanned, duplicate groups found, and wasted space
+- The status bar shows total selected files and their combined size
 
 ## How It Works
 
 File X Sorter uses a multi-stage detection algorithm:
 
-1. **File Collection**: Walk through directories (recursive or non-recursive)
+1. **File Collection**: Walk through all selected directories (recursive optional)
 2. **Size Filtering**: Group files by size - files with unique sizes cannot be duplicates
 3. **Hash Computation**: SHA-256 hash computed in parallel for same-sized files
 4. **Duplicate Grouping**: Files with identical hashes are grouped together
@@ -78,7 +104,23 @@ File X Sorter uses a multi-stage detection algorithm:
 ## Requirements
 
 - Windows 10 or Windows 11 (64-bit)
-- Approximately 3.9 MB disk space
+- Approximately 4 MB disk space
+
+## Changelog
+
+### v0.2.0
+- Added multi-folder scanning support
+- Added file preview panel with size and content display
+- Added space breakdown by folder
+- Added text file content preview
+- Improved status bar with selection info
+- Updated UI layout with resizable panels
+
+### v0.1.0
+- Initial release
+- Duplicate detection with SHA-256 hashing
+- Delete and move operations
+- Recursive scanning toggle
 
 ## Roadmap
 
@@ -119,6 +161,7 @@ FileXSorter/
 - `sha2` - SHA-256 hashing
 - `rayon` - Parallel processing
 - `walkdir` - Directory traversal
+- `chrono` - Date/time formatting
 - `open` - Open files in system explorer
 
 ### Building

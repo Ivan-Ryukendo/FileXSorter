@@ -124,8 +124,18 @@ impl Scanner {
 
     /// Scan a directory for duplicate files
     pub fn scan_directory(&self, path: &Path) -> ScanResult {
-        self.scan_directory_with_progress(
-            path,
+        self.scan_directories_with_progress(
+            &[path.to_path_buf()],
+            &self.progress_current,
+            &self.progress_total,
+            &self.cancel_flag,
+        )
+    }
+
+    /// Scan multiple directories for duplicate files
+    pub fn scan_directories(&self, paths: &[PathBuf]) -> ScanResult {
+        self.scan_directories_with_progress(
+            paths,
             &self.progress_current,
             &self.progress_total,
             &self.cancel_flag,
@@ -140,13 +150,38 @@ impl Scanner {
         progress_total: &AtomicUsize,
         cancel_flag: &AtomicBool,
     ) -> ScanResult {
+        self.scan_directories_with_progress(
+            &[path.to_path_buf()],
+            progress_current,
+            progress_total,
+            cancel_flag,
+        )
+    }
+
+    /// Scan multiple directories for duplicate files with external progress tracking
+    pub fn scan_directories_with_progress(
+        &self,
+        paths: &[PathBuf],
+        progress_current: &AtomicUsize,
+        progress_total: &AtomicUsize,
+        cancel_flag: &AtomicBool,
+    ) -> ScanResult {
         progress_current.store(0, Ordering::Relaxed);
         progress_total.store(0, Ordering::Relaxed);
 
         let mut result = ScanResult::default();
 
-        // Phase 1: Collect all files
-        let files = self.collect_files_with_cancel(path, cancel_flag, &mut result.errors);
+        // Phase 1: Collect all files from all directories
+        let mut files = Vec::new();
+        for path in paths {
+            if cancel_flag.load(Ordering::Relaxed) {
+                return result;
+            }
+            let mut dir_files =
+                self.collect_files_with_cancel(path, cancel_flag, &mut result.errors);
+            files.append(&mut dir_files);
+        }
+
         if cancel_flag.load(Ordering::Relaxed) {
             return result;
         }

@@ -1,5 +1,19 @@
 # Feature Roadmap
 
+## Implemented Features
+
+### v0.2.0 (Current)
+- [x] **Multi-Folder Scanning**: Scan multiple directories in one session
+- [x] **Content Preview**: Preview files before deciding to delete/move
+- [x] **Space Analysis**: See storage usage breakdown by folder
+
+### v0.1.0
+- [x] **Duplicate Detection**: SHA-256 hash-based detection
+- [x] **Delete/Move Operations**: Remove or relocate duplicates
+- [x] **Recursive Scanning**: Optional subfolder scanning
+
+---
+
 ## Suggested Future Features
 
 ### Tagging & Organization System
@@ -18,10 +32,10 @@
 
 ### Advanced Duplicate Detection
 - **Fuzzy Name Matching**: Detect similar filenames (e.g., "photo1.jpg" vs "photo_1.jpg")
-- **Extention Detection**: Detect similar filenames with different extensions (e.g., "photo1.jpg" vs "photo1.png")
+- **Extension Detection**: Detect similar filenames with different extensions (e.g., "photo1.jpg" vs "photo1.png")
 - **Image Similarity Detection**: Find visually similar images using perceptual hashing
 - **Audio Fingerprinting**: Detect duplicate audio files even with different metadata
-- **Content Preview**: Preview files before deciding to delete/move
+- ~~**Content Preview**: Preview files before deciding to delete/move~~ (Implemented v0.2.0)
 - **Duplicate Age Priority**: Suggest keeping the oldest or newest file
 
 ### Sorting & File Management
@@ -48,7 +62,7 @@
 
 ### Performance & Scale
 - **Network Drive Support**: Scan mapped drives and UNC paths
-- **Multi-Folder Scanning**: Scan multiple directories in one session
+- ~~**Multi-Folder Scanning**: Scan multiple directories in one session~~ (Implemented v0.2.0)
 - **Exclusion Patterns**: Ignore specific folders, file types, or name patterns
 - **Pause/Resume Scanning**: Interrupt long scans without losing progress
 - **Memory-Efficient Mode**: Stream processing for very large directories
