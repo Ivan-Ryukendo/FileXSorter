@@ -2,6 +2,7 @@
 //!
 //! This module contains the main application state and egui-based UI.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -35,21 +36,34 @@ impl ScanState {
     }
 }
 
+/// File type for preview purposes
+#[derive(Clone, PartialEq)]
+enum FileType {
+    Image,
+    Video,
+    Audio,
+    Gif,
+    Text,
+    Other,
+}
+
 /// File preview information
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct FilePreview {
     path: PathBuf,
     name: String,
     size: u64,
     extension: String,
     modified: String,
+    file_type: FileType,
     preview_text: Option<String>,
-    is_image: bool,
+    dimensions: Option<(u32, u32)>, // For images
+    duration_info: Option<String>,  // For audio/video
 }
 
 /// Application state
 pub struct FileXSorterApp {
-    // Scan settings - now supports multiple folders
+    // Scan settings - supports multiple folders
     selected_folders: Vec<PathBuf>,
     recursive_scan: bool,
 
@@ -65,6 +79,7 @@ pub struct FileXSorterApp {
     // File preview state
     preview_file: Option<FilePreview>,
     show_preview_panel: bool,
+    loaded_images: HashMap<PathBuf, egui::TextureHandle>,
 
     // File operations
     file_ops: FileOperations,
@@ -99,6 +114,7 @@ impl Default for FileXSorterApp {
             selected_files: Vec::new(),
             preview_file: None,
             show_preview_panel: true,
+            loaded_images: HashMap::new(),
             file_ops: FileOperations::new(),
             show_confirmation_dialog: None,
             status_message: None,
@@ -109,6 +125,21 @@ impl Default for FileXSorterApp {
 impl FileXSorterApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         Self::default()
+    }
+
+    fn get_file_type(extension: &str) -> FileType {
+        match extension.to_lowercase().as_str() {
+            "png" | "jpg" | "jpeg" | "bmp" | "ico" | "webp" | "tiff" | "tif" => FileType::Image,
+            "gif" => FileType::Gif,
+            "mp4" | "avi" | "mkv" | "mov" | "wmv" | "flv" | "webm" | "m4v" | "mpeg" | "mpg" => {
+                FileType::Video
+            }
+            "mp3" | "wav" | "flac" | "aac" | "ogg" | "wma" | "m4a" | "opus" => FileType::Audio,
+            "txt" | "md" | "rs" | "py" | "js" | "ts" | "json" | "xml" | "html" | "css" | "toml"
+            | "yaml" | "yml" | "ini" | "cfg" | "log" | "csv" | "c" | "cpp" | "h" | "java"
+            | "go" | "rb" | "php" | "sh" | "bat" | "ps1" => FileType::Text,
+            _ => FileType::Other,
+        }
     }
 
     fn start_scan(&mut self) {
@@ -125,6 +156,7 @@ impl FileXSorterApp {
         self.scan_result = None;
         self.selected_files.clear();
         self.preview_file = None;
+        self.loaded_images.clear();
 
         // Create new scan state
         self.scan_state = Arc::new(ScanState::new());
@@ -145,7 +177,6 @@ impl FileXSorterApp {
             let progress_total = &scan_state.progress_total;
             let cancel_flag = &scan_state.cancel_flag;
 
-            // Scan all directories
             let result = scanner.scan_directories_with_progress(
                 &folders,
                 progress_current,
@@ -153,7 +184,6 @@ impl FileXSorterApp {
                 cancel_flag,
             );
 
-            // Store result
             if let Ok(mut guard) = scan_state.result.lock() {
                 *guard = Some(result);
             }
@@ -173,19 +203,16 @@ impl FileXSorterApp {
         }
 
         if self.scan_state.is_complete.load(Ordering::SeqCst) {
-            // Scan is done, get result
             if let Ok(mut guard) = self.scan_state.result.lock() {
                 self.scan_result = guard.take();
             }
 
             self.is_scanning = false;
 
-            // Clean up thread handle
             if let Some(handle) = self.scan_handle.take() {
                 let _ = handle.join();
             }
 
-            // Update status
             if let Some(ref result) = self.scan_result {
                 if result.duplicate_groups.is_empty() {
                     self.status_message =
@@ -232,33 +259,8 @@ impl FileXSorterApp {
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
 
-        let is_image = matches!(
-            extension.as_str(),
-            "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "webp"
-        );
+        let file_type = Self::get_file_type(&extension);
 
-        let is_text = matches!(
-            extension.as_str(),
-            "txt"
-                | "md"
-                | "rs"
-                | "py"
-                | "js"
-                | "ts"
-                | "json"
-                | "xml"
-                | "html"
-                | "css"
-                | "toml"
-                | "yaml"
-                | "yml"
-                | "ini"
-                | "cfg"
-                | "log"
-                | "csv"
-        );
-
-        // Get file modified time
         let modified = fs::metadata(&file.path)
             .and_then(|m| m.modified())
             .map(|t| {
@@ -267,14 +269,27 @@ impl FileXSorterApp {
             })
             .unwrap_or_else(|_| "Unknown".to_string());
 
-        // Try to read text preview for text files
-        let preview_text = if is_text && file.size < 1024 * 100 {
-            // Only preview files < 100KB
+        // Text preview for text files
+        let preview_text = if file_type == FileType::Text && file.size < 1024 * 100 {
             fs::read_to_string(&file.path)
                 .ok()
-                .map(|s| s.chars().take(2000).collect()) // Limit preview to 2000 chars
+                .map(|s| s.chars().take(2000).collect())
         } else {
             None
+        };
+
+        // Get image dimensions
+        let dimensions = if file_type == FileType::Image || file_type == FileType::Gif {
+            image::image_dimensions(&file.path).ok()
+        } else {
+            None
+        };
+
+        // Duration info placeholder for audio/video
+        let duration_info = match file_type {
+            FileType::Video => Some(format!("Video file - {}", extension.to_uppercase())),
+            FileType::Audio => Some(format!("Audio file - {}", extension.to_uppercase())),
+            _ => None,
         };
 
         self.preview_file = Some(FilePreview {
@@ -283,42 +298,47 @@ impl FileXSorterApp {
             size: file.size,
             extension,
             modified,
+            file_type,
             preview_text,
-            is_image,
+            dimensions,
+            duration_info,
         });
     }
 
-    fn calculate_folder_sizes(&self) -> Vec<(PathBuf, u64, usize)> {
-        let mut folder_stats: Vec<(PathBuf, u64, usize)> = Vec::new();
-
-        if let Some(ref result) = self.scan_result {
-            for group in &result.duplicate_groups {
-                for file in &group.files {
-                    if let Some(parent) = file.path.parent() {
-                        let parent_path = parent.to_path_buf();
-                        if let Some(entry) =
-                            folder_stats.iter_mut().find(|(p, _, _)| *p == parent_path)
-                        {
-                            entry.1 += file.size;
-                            entry.2 += 1;
-                        } else {
-                            folder_stats.push((parent_path, file.size, 1));
-                        }
-                    }
-                }
-            }
+    fn load_image_texture(
+        &mut self,
+        ctx: &egui::Context,
+        path: &PathBuf,
+    ) -> Option<egui::TextureHandle> {
+        if let Some(texture) = self.loaded_images.get(path) {
+            return Some(texture.clone());
         }
 
-        // Sort by size (largest first)
-        folder_stats.sort_by(|a, b| b.1.cmp(&a.1));
-        folder_stats
+        // Try to load image
+        if let Ok(img) = image::open(path) {
+            let img = img.to_rgba8();
+            let size = [img.width() as usize, img.height() as usize];
+            let pixels = img.into_raw();
+
+            let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+            let texture = ctx.load_texture(
+                path.to_string_lossy(),
+                color_image,
+                egui::TextureOptions::LINEAR,
+            );
+
+            self.loaded_images.insert(path.clone(), texture.clone());
+            return Some(texture);
+        }
+
+        None
     }
 
     fn render_header(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.heading("File X Sorter");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("v0.2.0");
+                ui.label("v0.3.0");
                 ui.separator();
                 ui.checkbox(&mut self.show_preview_panel, "Show Preview");
             });
@@ -352,35 +372,31 @@ impl FileXSorterApp {
             }
         });
 
-        // Display selected folders with remove buttons
+        // Display selected folders
         if !self.selected_folders.is_empty() {
             ui.group(|ui| {
-                egui::ScrollArea::vertical()
-                    .max_height(80.0)
+                egui::ScrollArea::horizontal()
+                    .max_height(40.0)
                     .show(ui, |ui| {
-                        let mut to_remove: Option<usize> = None;
-                        for (idx, folder) in self.selected_folders.iter().enumerate() {
-                            ui.horizontal(|ui| {
-                                if ui.small_button("X").clicked() && !self.is_scanning {
-                                    to_remove = Some(idx);
-                                }
-                                ui.label(format!("{}", folder.display()));
-                            });
-                        }
-                        if let Some(idx) = to_remove {
-                            self.selected_folders.remove(idx);
-                        }
+                        ui.horizontal(|ui| {
+                            let mut to_remove: Option<usize> = None;
+                            for (idx, folder) in self.selected_folders.iter().enumerate() {
+                                ui.group(|ui| {
+                                    ui.horizontal(|ui| {
+                                        if ui.small_button("X").clicked() && !self.is_scanning {
+                                            to_remove = Some(idx);
+                                        }
+                                        ui.label(format!("{}", folder.display()));
+                                    });
+                                });
+                            }
+                            if let Some(idx) = to_remove {
+                                self.selected_folders.remove(idx);
+                            }
+                        });
                     });
             });
-        } else {
-            ui.label(
-                egui::RichText::new("No folders selected. Click 'Add Folder' to begin.")
-                    .italics()
-                    .color(egui::Color32::GRAY),
-            );
         }
-
-        ui.add_space(5.0);
 
         ui.horizontal(|ui| {
             ui.checkbox(&mut self.recursive_scan, "Scan subfolders");
@@ -392,7 +408,6 @@ impl FileXSorterApp {
                 }
                 ui.spinner();
 
-                // Show progress
                 let current = self.scan_state.progress_current.load(Ordering::Relaxed);
                 let total = self.scan_state.progress_total.load(Ordering::Relaxed);
                 if total > 0 {
@@ -406,14 +421,14 @@ impl FileXSorterApp {
         });
     }
 
-    fn render_results(&mut self, ui: &mut egui::Ui) {
+    fn render_results(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         if let Some(ref result) = self.scan_result.clone() {
             ui.separator();
 
-            // Summary
+            // Summary line
             ui.horizontal(|ui| {
                 ui.label(format!(
-                    "Scanned {} files ({}) | Found {} duplicate groups | {} duplicates | {} wasted",
+                    "Scanned {} files ({}) | {} groups | {} duplicates | {} wasted",
                     result.total_files,
                     format_size(result.total_size),
                     result.duplicate_groups.len(),
@@ -431,7 +446,7 @@ impl FileXSorterApp {
                 if ui
                     .add_enabled(
                         selected_count > 0,
-                        egui::Button::new(format!("Delete Selected ({})", selected_count)),
+                        egui::Button::new(format!("Delete ({})", selected_count)),
                     )
                     .clicked()
                 {
@@ -442,7 +457,7 @@ impl FileXSorterApp {
                 if ui
                     .add_enabled(
                         selected_count > 0,
-                        egui::Button::new(format!("Move Selected ({})", selected_count)),
+                        egui::Button::new(format!("Move ({})", selected_count)),
                     )
                     .clicked()
                 {
@@ -456,7 +471,6 @@ impl FileXSorterApp {
                 if ui.button("Select All Duplicates").clicked() {
                     self.selected_files.clear();
                     for (g_idx, group) in result.duplicate_groups.iter().enumerate() {
-                        // Select all but the first file in each group
                         for f_idx in 1..group.files.len() {
                             self.selected_files.push((g_idx, f_idx));
                         }
@@ -470,21 +484,33 @@ impl FileXSorterApp {
 
             ui.separator();
 
-            // Main content area with optional preview panel
-            let available_width = ui.available_width();
-            let results_width = if self.show_preview_panel {
-                available_width * 0.6
-            } else {
-                available_width
-            };
+            // Main content: Preview on right side, file list in remaining space
+            let available = ui.available_size();
+            let preview_width = if self.show_preview_panel { 280.0 } else { 0.0 };
+            let list_width = available.x - preview_width - 10.0;
 
             ui.horizontal(|ui| {
-                // Duplicate groups list
+                // Left side: Duplicate groups list (fills most space)
                 ui.vertical(|ui| {
-                    ui.set_width(results_width);
+                    ui.set_width(list_width);
+
+                    // Results summary in green
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Found {} duplicate groups ({} files, {} wasted)",
+                            result.duplicate_groups.len(),
+                            result.total_duplicates,
+                            format_size(result.wasted_space)
+                        ))
+                        .color(egui::Color32::from_rgb(100, 255, 100)),
+                    );
+
+                    ui.separator();
+
+                    // Scrollable list of duplicate groups
                     egui::ScrollArea::vertical()
-                        .id_salt("results_scroll")
-                        .auto_shrink([false; 2])
+                        .id_salt("file_list_scroll")
+                        .auto_shrink([false, false])
                         .show(ui, |ui| {
                             for (group_idx, group) in result.duplicate_groups.iter().enumerate() {
                                 self.render_duplicate_group(ui, group_idx, group);
@@ -492,10 +518,10 @@ impl FileXSorterApp {
                         });
                 });
 
-                // Preview panel
+                // Right side: Preview panel (compact)
                 if self.show_preview_panel {
                     ui.separator();
-                    self.render_preview_panel(ui);
+                    self.render_preview_panel(ui, ctx);
                 }
             });
 
@@ -516,88 +542,145 @@ impl FileXSorterApp {
         }
     }
 
-    fn render_preview_panel(&mut self, ui: &mut egui::Ui) {
+    fn render_preview_panel(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.vertical(|ui| {
-            ui.set_min_width(250.0);
+            ui.set_width(270.0);
             ui.heading("File Preview");
             ui.separator();
 
             if let Some(ref preview) = self.preview_file.clone() {
-                // File info
-                ui.group(|ui| {
-                    ui.label(egui::RichText::new(&preview.name).strong());
-                    ui.separator();
+                // File name
+                ui.label(egui::RichText::new(&preview.name).strong().size(14.0));
 
-                    egui::Grid::new("preview_info")
-                        .num_columns(2)
-                        .spacing([10.0, 4.0])
-                        .show(ui, |ui| {
-                            ui.label("Size:");
-                            ui.label(format_size(preview.size));
+                // File info grid
+                egui::Grid::new("preview_info")
+                    .num_columns(2)
+                    .spacing([8.0, 2.0])
+                    .show(ui, |ui| {
+                        ui.label("Size:");
+                        ui.label(format_size(preview.size));
+                        ui.end_row();
+
+                        ui.label("Type:");
+                        let type_str = match preview.file_type {
+                            FileType::Image => "Image",
+                            FileType::Gif => "GIF",
+                            FileType::Video => "Video",
+                            FileType::Audio => "Audio",
+                            FileType::Text => "Text",
+                            FileType::Other => "File",
+                        };
+                        ui.label(format!(
+                            "{} ({})",
+                            type_str,
+                            preview.extension.to_uppercase()
+                        ));
+                        ui.end_row();
+
+                        if let Some((w, h)) = preview.dimensions {
+                            ui.label("Dimensions:");
+                            ui.label(format!("{}x{}", w, h));
                             ui.end_row();
+                        }
+                    });
 
-                            ui.label("Type:");
-                            ui.label(if preview.extension.is_empty() {
-                                "Unknown".to_string()
+                ui.add_space(5.0);
+
+                // Media preview area
+                match preview.file_type {
+                    FileType::Image | FileType::Gif => {
+                        ui.group(|ui| {
+                            ui.set_max_height(200.0);
+                            if let Some(texture) = self.load_image_texture(ctx, &preview.path) {
+                                let size = texture.size_vec2();
+                                let max_size = egui::vec2(250.0, 180.0);
+                                let scale = (max_size.x / size.x).min(max_size.y / size.y).min(1.0);
+                                let display_size = size * scale;
+                                ui.image(&texture);
+                                let _ = display_size; // Used for sizing
                             } else {
-                                preview.extension.to_uppercase()
+                                ui.label("Loading image...");
+                            }
+                        });
+                    }
+                    FileType::Video => {
+                        ui.group(|ui| {
+                            ui.set_min_height(80.0);
+                            ui.vertical_centered(|ui| {
+                                ui.label(egui::RichText::new("🎬").size(32.0));
+                                ui.label("Video File");
+                                if let Some(ref info) = preview.duration_info {
+                                    ui.label(
+                                        egui::RichText::new(info)
+                                            .small()
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                }
                             });
-                            ui.end_row();
-
-                            ui.label("Modified:");
-                            ui.label(&preview.modified);
-                            ui.end_row();
                         });
-                });
-
-                ui.add_space(10.0);
-
-                // Content preview
-                if let Some(ref text) = preview.preview_text {
-                    ui.label(egui::RichText::new("Content Preview:").strong());
-                    egui::ScrollArea::vertical()
-                        .id_salt("preview_text_scroll")
-                        .max_height(200.0)
-                        .show(ui, |ui| {
-                            ui.add(
-                                egui::TextEdit::multiline(&mut text.as_str())
-                                    .font(egui::TextStyle::Monospace)
-                                    .desired_width(f32::INFINITY)
-                                    .interactive(false),
-                            );
+                    }
+                    FileType::Audio => {
+                        ui.group(|ui| {
+                            ui.set_min_height(80.0);
+                            ui.vertical_centered(|ui| {
+                                ui.label(egui::RichText::new("🎵").size(32.0));
+                                ui.label("Audio File");
+                                if let Some(ref info) = preview.duration_info {
+                                    ui.label(
+                                        egui::RichText::new(info)
+                                            .small()
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                }
+                            });
                         });
-                } else if preview.is_image {
-                    ui.label(
-                        egui::RichText::new("Image file - Open folder to view")
-                            .italics()
-                            .color(egui::Color32::GRAY),
-                    );
-                } else {
-                    ui.label(
-                        egui::RichText::new("No preview available for this file type")
-                            .italics()
-                            .color(egui::Color32::GRAY),
-                    );
+                    }
+                    FileType::Text => {
+                        if let Some(ref text) = preview.preview_text {
+                            ui.group(|ui| {
+                                egui::ScrollArea::vertical()
+                                    .id_salt("text_preview")
+                                    .max_height(150.0)
+                                    .show(ui, |ui| {
+                                        ui.add(
+                                            egui::TextEdit::multiline(&mut text.as_str())
+                                                .font(egui::TextStyle::Monospace)
+                                                .desired_width(f32::INFINITY)
+                                                .interactive(false),
+                                        );
+                                    });
+                            });
+                        }
+                    }
+                    FileType::Other => {
+                        ui.group(|ui| {
+                            ui.set_min_height(60.0);
+                            ui.vertical_centered(|ui| {
+                                ui.label(egui::RichText::new("📄").size(24.0));
+                                ui.label("No preview available");
+                            });
+                        });
+                    }
                 }
 
-                ui.add_space(10.0);
+                ui.add_space(5.0);
 
-                // Full path
-                ui.label(egui::RichText::new("Path:").strong());
+                // Path
+                ui.label(egui::RichText::new("Path:").small());
                 ui.label(
                     egui::RichText::new(preview.path.display().to_string())
                         .small()
                         .color(egui::Color32::GRAY),
                 );
 
-                ui.add_space(10.0);
+                ui.add_space(5.0);
 
                 // Action buttons
                 ui.horizontal(|ui| {
-                    if ui.button("Open File").clicked() {
+                    if ui.small_button("Open File").clicked() {
                         let _ = open::that(&preview.path);
                     }
-                    if ui.button("Open Folder").clicked() {
+                    if ui.small_button("Open Folder").clicked() {
                         if let Some(parent) = preview.path.parent() {
                             let _ = open::that(parent);
                         }
@@ -605,33 +688,33 @@ impl FileXSorterApp {
                 });
             } else {
                 ui.label(
-                    egui::RichText::new("Click 'Preview' on a file to see details here.")
+                    egui::RichText::new("Click 'Preview' on a file")
                         .italics()
                         .color(egui::Color32::GRAY),
                 );
 
-                // Show folder space breakdown
-                ui.add_space(20.0);
-                ui.label(egui::RichText::new("Space by Folder:").strong());
-                ui.separator();
-
-                let folder_stats = self.calculate_folder_sizes();
-                egui::ScrollArea::vertical()
-                    .id_salt("folder_stats_scroll")
-                    .max_height(300.0)
-                    .show(ui, |ui| {
-                        for (path, size, count) in folder_stats.iter().take(20) {
-                            ui.horizontal(|ui| {
-                                ui.label(format!("{} ({} files)", format_size(*size), count));
-                            });
-                            ui.label(
-                                egui::RichText::new(path.display().to_string())
-                                    .small()
-                                    .color(egui::Color32::GRAY),
-                            );
-                            ui.add_space(5.0);
-                        }
-                    });
+                ui.add_space(10.0);
+                ui.label(egui::RichText::new("Supported previews:").small());
+                ui.label(
+                    egui::RichText::new("• Images: PNG, JPG, GIF, BMP, WEBP")
+                        .small()
+                        .color(egui::Color32::GRAY),
+                );
+                ui.label(
+                    egui::RichText::new("• Video: MP4, AVI, MKV, MOV...")
+                        .small()
+                        .color(egui::Color32::GRAY),
+                );
+                ui.label(
+                    egui::RichText::new("• Audio: MP3, WAV, FLAC, AAC...")
+                        .small()
+                        .color(egui::Color32::GRAY),
+                );
+                ui.label(
+                    egui::RichText::new("• Text: TXT, MD, JSON, code...")
+                        .small()
+                        .color(egui::Color32::GRAY),
+                );
             }
         });
     }
@@ -667,7 +750,6 @@ impl FileXSorterApp {
                             }
                         }
 
-                        // First file indicator (original)
                         if file_idx == 0 {
                             ui.label(
                                 egui::RichText::new("[KEEP]")
@@ -676,13 +758,25 @@ impl FileXSorterApp {
                             );
                         }
 
+                        // File type icon
+                        let ext = file
+                            .path
+                            .extension()
+                            .map(|e| e.to_string_lossy().to_lowercase())
+                            .unwrap_or_default();
+                        let icon = match Self::get_file_type(&ext) {
+                            FileType::Image => "🖼",
+                            FileType::Gif => "🎞",
+                            FileType::Video => "🎬",
+                            FileType::Audio => "🎵",
+                            FileType::Text => "📄",
+                            FileType::Other => "📁",
+                        };
+                        ui.label(icon);
+
                         ui.label(&file.name);
                         ui.label(format_size(file.size));
 
-                        // Show path on hover
-                        ui.label("|").on_hover_text(file.path.display().to_string());
-
-                        // Preview button
                         if ui.small_button("Preview").clicked() {
                             self.load_file_preview(file);
                         }
@@ -703,91 +797,70 @@ impl FileXSorterApp {
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-                .show(ctx, |ui| {
-                    match &dialog {
-                        ConfirmationDialog::DeleteFiles(paths) => {
-                            ui.label(format!(
-                                "Are you sure you want to delete {} file(s)?",
-                                paths.len()
-                            ));
-                            ui.label("This action cannot be undone!");
-
-                            ui.separator();
-
-                            ui.horizontal(|ui| {
-                                if ui.button("Delete").clicked() {
-                                    let results = self.file_ops.delete_files(paths);
-                                    let success_count = results
-                                        .iter()
-                                        .filter(|r| matches!(r, OperationResult::Success(_)))
-                                        .count();
-                                    self.status_message = Some((
-                                        format!(
-                                            "Deleted {} of {} files.",
-                                            success_count,
-                                            paths.len()
-                                        ),
-                                        if success_count == paths.len() {
-                                            MessageType::Success
-                                        } else {
-                                            MessageType::Error
-                                        },
-                                    ));
-                                    self.selected_files.clear();
-                                    self.preview_file = None;
-                                    self.show_confirmation_dialog = None;
-
-                                    // Trigger rescan
-                                    if !self.selected_folders.is_empty() {
-                                        self.start_scan();
-                                    }
+                .show(ctx, |ui| match &dialog {
+                    ConfirmationDialog::DeleteFiles(paths) => {
+                        ui.label(format!("Delete {} file(s)?", paths.len()));
+                        ui.label(
+                            egui::RichText::new("This cannot be undone!").color(egui::Color32::RED),
+                        );
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            if ui.button("Delete").clicked() {
+                                let results = self.file_ops.delete_files(paths);
+                                let success = results
+                                    .iter()
+                                    .filter(|r| matches!(r, OperationResult::Success(_)))
+                                    .count();
+                                self.status_message = Some((
+                                    format!("Deleted {} of {} files.", success, paths.len()),
+                                    if success == paths.len() {
+                                        MessageType::Success
+                                    } else {
+                                        MessageType::Error
+                                    },
+                                ));
+                                self.selected_files.clear();
+                                self.preview_file = None;
+                                self.show_confirmation_dialog = None;
+                                if !self.selected_folders.is_empty() {
+                                    self.start_scan();
                                 }
-
-                                if ui.button("Cancel").clicked() {
-                                    self.show_confirmation_dialog = None;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                self.show_confirmation_dialog = None;
+                            }
+                        });
+                    }
+                    ConfirmationDialog::MoveFiles(paths, dest) => {
+                        ui.label(format!("Move {} file(s) to:", paths.len()));
+                        ui.label(dest.display().to_string());
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            if ui.button("Move").clicked() {
+                                let results = self.file_ops.move_files(paths, dest);
+                                let success = results
+                                    .iter()
+                                    .filter(|r| matches!(r, OperationResult::Success(_)))
+                                    .count();
+                                self.status_message = Some((
+                                    format!("Moved {} of {} files.", success, paths.len()),
+                                    if success == paths.len() {
+                                        MessageType::Success
+                                    } else {
+                                        MessageType::Error
+                                    },
+                                ));
+                                self.selected_files.clear();
+                                self.preview_file = None;
+                                self.show_confirmation_dialog = None;
+                                if !self.selected_folders.is_empty() {
+                                    self.start_scan();
                                 }
-                            });
-                        }
-                        ConfirmationDialog::MoveFiles(paths, dest) => {
-                            ui.label(format!("Move {} file(s) to:", paths.len()));
-                            ui.label(dest.display().to_string());
-
-                            ui.separator();
-
-                            ui.horizontal(|ui| {
-                                if ui.button("Move").clicked() {
-                                    let results = self.file_ops.move_files(paths, dest);
-                                    let success_count = results
-                                        .iter()
-                                        .filter(|r| matches!(r, OperationResult::Success(_)))
-                                        .count();
-                                    self.status_message = Some((
-                                        format!(
-                                            "Moved {} of {} files.",
-                                            success_count,
-                                            paths.len()
-                                        ),
-                                        if success_count == paths.len() {
-                                            MessageType::Success
-                                        } else {
-                                            MessageType::Error
-                                        },
-                                    ));
-                                    self.selected_files.clear();
-                                    self.preview_file = None;
-                                    self.show_confirmation_dialog = None;
-
-                                    // Trigger rescan
-                                    if !self.selected_folders.is_empty() {
-                                        self.start_scan();
-                                    }
-                                }
-
-                                if ui.button("Cancel").clicked() {
-                                    self.show_confirmation_dialog = None;
-                                }
-                            });
-                        }
+                            }
+                            if ui.button("Cancel").clicked() {
+                                self.show_confirmation_dialog = None;
+                            }
+                        });
                     }
                 });
         }
@@ -805,17 +878,16 @@ impl FileXSorterApp {
                 ui.label(egui::RichText::new(msg).color(color));
             }
 
-            // Show selected file count
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let selected_size: u64 = self
-                    .get_selected_paths()
-                    .iter()
-                    .filter_map(|p| fs::metadata(p).ok())
-                    .map(|m| m.len())
-                    .sum();
                 if !self.selected_files.is_empty() {
+                    let selected_size: u64 = self
+                        .get_selected_paths()
+                        .iter()
+                        .filter_map(|p| fs::metadata(p).ok())
+                        .map(|m| m.len())
+                        .sum();
                     ui.label(format!(
-                        "Selected: {} files ({})",
+                        "Selected: {} ({})",
                         self.selected_files.len(),
                         format_size(selected_size)
                     ));
@@ -827,10 +899,8 @@ impl FileXSorterApp {
 
 impl eframe::App for FileXSorterApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Check if background scan completed
         self.check_scan_complete();
 
-        // Request repaint while scanning for progress updates
         if self.is_scanning {
             ctx.request_repaint();
         }
@@ -838,7 +908,7 @@ impl eframe::App for FileXSorterApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.render_header(ui);
             self.render_folder_selection(ui);
-            self.render_results(ui);
+            self.render_results(ui, ctx);
             self.render_status_bar(ui);
         });
 
