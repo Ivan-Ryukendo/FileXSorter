@@ -1,5 +1,5 @@
 [package]
-name = "file_x_sorter"
+name = "FileXSorter"
 version = "0.3.0"
 edition = "2021"
 authors = ["Ivan Ryukendo"]
@@ -7,7 +7,7 @@ description = "A lightweight Windows file duplicate detection and sorting tool"
 license = "MIT"
 
 [[bin]]
-name = "file-x-sorter"
+name = "FileXSorter"
 path = "src/main.rs"
 
 [dependencies]
